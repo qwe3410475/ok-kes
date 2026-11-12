@@ -66,6 +66,8 @@ class ChaosMode(TriggerTask):
         self.config_description['保留装备列表'] = "开启“仅保留指定装备并提炼其他装备”后生效；列表中的装备会保留，其余装备自动提炼。列表为空时不会自动提炼。"
         self.default_config['卡牌奖励优先级'] = ["梦之边境"]
         self.default_config['指定记忆卡牌'] = ""
+        self.default_config['自动记忆加工'] = True
+        self.config_description['自动记忆加工'] = "开启时自动加工指定记忆，并在记忆之末使用可用的记忆雕琢；关闭时跳过加工并离开记忆之末。"
         self.default_config['首层刷特定闪光'] = False
         self.default_config['刷空档'] = False
         self.default_config['优先使用金币治疗'] = True

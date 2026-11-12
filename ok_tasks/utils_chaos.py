@@ -54,6 +54,12 @@ def handle_memory_process(task: TriggerTask):
         return False
 
     task.log_info("检测到加工记忆页面")
+    if not _get_config_value(task, "自动记忆加工", True):
+        task.log_info("自动记忆加工已关闭，点击跳过")
+        _move_and_click(task, 0.762, 0.935)
+        task.sleep(1)
+        return True
+
     cards = recognize_cards(
         task, region=(0.095, 0.204, 0.887, 0.868), page="加工记忆页面"
     )[:3]
@@ -1058,6 +1064,10 @@ def handle_precision_memory_process(task: TriggerTask):
     status = getattr(task, "node_status", None)
     if status is not None:
         status["precision_memory_visited"] = True
+
+    if not _get_config_value(task, "自动记忆加工", True):
+        task.log_info("自动记忆加工已关闭，跳过记忆雕琢")
+        return False
 
     specified_memory = _get_config_value(task, "指定记忆卡牌", "")
     if specified_memory and cards and not any(
