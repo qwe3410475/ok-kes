@@ -1304,6 +1304,12 @@ def select_card(task: TriggerTask, card_names, count=1, action=""):
                 )
                 continue
             filtered_cards.append(card)
+        if not filtered_cards and cards and action in ("闪光", "灵光"):
+            task.log_info(
+                f"{page}: 所有候选牌都命中闪光排除优先级；"
+                "为完成必须选择的操作，改从可用候选牌中兜底选择"
+            )
+            return cards
         return filtered_cards
 
     def refresh_cards():
@@ -1710,40 +1716,17 @@ def is_frame_stuck(task: TriggerTask, stuck_threshold_seconds=30, change_thresho
 
 
 def handle_stuck_log(task: TriggerTask):
-    """画面卡住超过10秒时依次处理关闭页、特殊怪物、卡牌或未知页面。"""
-    if not is_frame_stuck(task, stuck_threshold_seconds=10):
+    """畫面長時間無變化時暫停自動操作，避免隨機點擊造成錯誤。"""
+    if not is_frame_stuck(task, stuck_threshold_seconds=20):
         return False
 
     stuck_seconds = int(time.time() - task._last_change_time)
-    close_page = task.find_one(
-        feature_name="close_page",
-        box=task.box_of_screen(0.921, 0.003, 0.998, 0.100),
+    task.log_info(
+        f"畫面連續{stuck_seconds}秒沒有明顯變化，已暫停自動操作；"
+        "請檢查目前畫面後手動接續"
     )
-    if close_page:
-        task.log_info(
-            f"画面卡住已持续{stuck_seconds}秒，检测到close_page特征，点击关闭页面"
-        )
-        task.click_box(close_page)
-        task.sleep(1)
-        return True
-
-    from utils_sortie import handle_secret_enemy
-    handle_secret_enemy(task)
-    cards = recognize_cards(task, page="画面卡住兜底")
-    if cards:
-        chosen_card = random.choice(cards)
-        task.log_info(
-            f"画面卡住兜底: 随机点击卡牌「{chosen_card['name']}」"
-        )
-        _move_and_click(task, chosen_card["x"], chosen_card["y"])
-    else:
-        handle_unknown_page(task)
-    # 普通随机点屏幕兜底暂时停用。
-    # click_x = random.uniform(0.059, 0.985)
-    # click_y = random.uniform(0.129, 0.981)
-    # _move_and_click(task, click_x, click_y)
-    task.log_info(f"画面卡住，已持续{stuck_seconds}秒")
-    return False
+    task.executor.pause()
+    return True
 
 
 # ------------------------- 页面处理函数（通用） -------------------------
@@ -3224,6 +3207,48 @@ def handle_event_task(task: TriggerTask):
     if not tasks_info:
         return False
 
+    interact_label = next(
+        (
+            text_box
+            for text_box in task.all_texts
+            if (
+                _clean_match(text_box.name.upper(), "F1")
+                or _clean_match(text_box.name.upper(), "F2")
+                or _clean_match(text_box.name.upper(), "F3")
+            )
+            and 0.20
+            <= (text_box.x + text_box.width / 2) / task.width
+            <= 0.90
+            and 0.35
+            <= (text_box.y + text_box.height / 2) / task.height
+            <= 0.76
+        ),
+        None,
+    )
+    if interact_label is not None:
+        interact_x = (interact_label.x + interact_label.width / 2) / task.width
+        interact_y = (interact_label.y + interact_label.height / 2) / task.height
+        task.log_info(
+            f"偵測到場景互動提示「{interact_label.name}」，點擊其下方圖標"
+        )
+        _move_and_click(task, interact_x, min(0.90, interact_y + 0.045))
+        task.sleep(1)
+        return True
+
+    portal_task = next(
+        (
+            task_info
+            for task_info in tasks_info
+            if "进入传送门内部" in task_info["description"]
+        ),
+        None,
+    )
+    if portal_task is not None:
+        task.log_info("檢測到傳送門事件提示，點擊對話框底部箭頭繼續")
+        _move_and_click(task, 0.501, 0.951)
+        task.sleep(1)
+        return True
+
     selectable_tasks = []
     for task_info in tasks_info:
         event_x = task_info["x"]
@@ -3250,6 +3275,31 @@ def handle_event_task(task: TriggerTask):
         task.log_info("事件任务页面的所有选项均被禁止，跳过本次选择")
         return False
 
+    def click_event_option(event_task):
+        left, top, right, bottom = event_task["description_region"]
+        description_x = (left + right) / 2
+        description_y = (top + bottom) / 2
+        _move_and_click(task, description_x, description_y)
+
+    # 已進入記憶雕琢頁後，優先選擇離開或結束事件的選項。
+    # 繁中遊戲實際顯示「離開事件結束」，不一定包含「就此離開」。
+    event_status = getattr(task, "node_status", {})
+    if event_status.get("precision_memory_visited"):
+        leave_task = next(
+            (
+                task_info
+                for task_info in tasks_info
+                if "离开" in task_info["description"]
+                or "结束" in task_info["description"]
+            ),
+            None,
+        )
+        if leave_task is not None:
+            task.log_info("已進入過記憶雕琢頁，選擇離開／結束事件的選項")
+            click_event_option(leave_task)
+            task.sleep(1)
+            return True
+
     check_region = task.box_of_screen(0.396, 0.286, 0.960, 0.718)
     check_features = [
         feature
@@ -3263,31 +3313,11 @@ def handle_event_task(task: TriggerTask):
     )
     if check_feature:
         task.log_info(
-            f"事件任务页面检测到check特征，相似度={check_feature.confidence:.4f}，优先点击"
+            f"事件任務頁面偵測到 check 特徵，相似度={check_feature.confidence:.4f}，優先點擊"
         )
         task.click_box(check_feature)
         task.sleep(1)
         return True
-
-    def click_event_option(event_task):
-        left, top, right, bottom = event_task["description_region"]
-        description_x = (left + right) / 2
-        description_y = (top + bottom) / 2
-        _move_and_click(task, description_x, description_y)
-
-    # 已经进过「精密加工记忆」页面后，优先选择「就此离开」结束事件，避免反复进入造成死循环
-    event_status = getattr(task, "node_status", {})
-    if event_status.get("precision_memory_visited"):
-        leave_task = next(
-            (task_info for task_info in tasks_info if "就此离开" in task_info["description"]),
-            None,
-        )
-        if leave_task is not None:
-            task.log_info("已进入过精密加工记忆，选择「就此离开」结束事件")
-            click_event_option(leave_task)
-            event_status["precision_memory_visited"] = False
-            task.sleep(1)
-            return True
 
     def handle_initial_node_task(description_keyword, purpose):
         """初始节点按描述选择任务；未找到目标描述时点击ESC重新开始。"""

@@ -1,4 +1,4 @@
-from ok import TriggerTask
+from ok import TriggerTask, og
 
 from utils import (
     _move_and_click, _simplify_texts, _get_config_value, _get_card_list, _get_route_priority, _get_game_text, _get_region_text, _get_current_hp_percent, _finish_only_first_layer,
@@ -48,14 +48,22 @@ def handle_keyword_pause(task: TriggerTask):
 
 
 def handle_memory_process(task: TriggerTask):
-    """加工记忆页面：选择命中指定记忆的卡牌，否则跳过。"""
+    """記憶加工頁面：依效果關鍵字選擇加工選項，否則略過。"""
     title = _get_region_text(task, (0.420, 0.072, 0.584, 0.169))
-    if "加工记忆" not in title:
+    # 繁中用詞和不同 OCR 版本可能辨識為「記憶雕琢」或「記憶加工」；
+    # 只檢查簡中標題會導致處理器完全不觸發。
+    process_titles = {
+        _get_game_text(task, "加工记忆"),
+        "加工记忆",
+        "记忆加工",
+        "记忆雕琢",
+    }
+    if not any(page_title and page_title in title for page_title in process_titles):
         return False
 
-    task.log_info("检测到加工记忆页面")
+    task.log_info("偵測到記憶加工頁面")
     if not _get_config_value(task, "自动记忆加工", True):
-        task.log_info("自动记忆加工已关闭，点击跳过")
+        task.log_info("自動記憶加工已關閉，點擊略過")
         _move_and_click(task, 0.762, 0.935)
         task.sleep(1)
         return True
@@ -63,54 +71,77 @@ def handle_memory_process(task: TriggerTask):
     cards = recognize_cards(
         task, region=(0.095, 0.204, 0.887, 0.868), page="加工记忆页面"
     )[:3]
+
+    def normalize_memory_text(text):
+        # 忽略標點差異，例如 OCR 將「：」辨識成「·」。
+        return re.sub(r"[^\w]", "", str(text)).casefold()
+
+    def description_matches(keyword, card):
+        # 空白分隔的多個詞都必須出現在效果描述中，避免鬆散子序列誤配。
+        keyword_parts = [
+            normalize_memory_text(part)
+            for part in re.split(r"\s+", str(keyword).strip())
+        ]
+        keyword_parts = [part for part in keyword_parts if part]
+        effect_text = normalize_memory_text(card["description"])
+        return bool(keyword_parts) and all(
+            part in effect_text for part in keyword_parts
+        )
+
     memory_keywords = _get_card_list(task, "记忆加工关键词优先级")
+    specified_memory = _get_config_value(task, "指定记忆卡牌", "")
+    title_keyword = normalize_memory_text(specified_memory)
+    if not title_keyword:
+        task.log_info("未設定指定記憶卡牌，無法確認加工卡牌標題；略過以避免誤選")
+        _move_and_click(task, 0.762, 0.935)
+        task.sleep(1)
+        return True
+
+    title_matches = [
+        card for card in cards
+        if title_keyword in normalize_memory_text(card["name"])
+    ]
     for keyword in memory_keywords:
         keyword = keyword.strip() if isinstance(keyword, str) else ""
         if not keyword:
             continue
         matched_card = next(
             (
-                card for card in cards
-                if keyword in (card["name"] + "：:" + card["description"])
+                card for card in title_matches
+                if description_matches(keyword, card)
             ),
             None,
         )
         if matched_card:
             task.log_info(
-                f"记忆加工页面：关键词「{keyword}」命中「{matched_card['name']}」，优先选择"
+                f"記憶加工頁面：效果關鍵字「{keyword}」命中「{matched_card['name']}」，優先選擇"
             )
             _move_and_click(task, matched_card["x"], matched_card["y"])
             task.sleep(1)
             return True
 
-    specified_memory = _get_config_value(task, "指定记忆卡牌", "")
-    if specified_memory:
-        for card in cards:
-            if is_subsequence(specified_memory, card["name"] + "：:" + card["description"]):
-                task.log_info(f"加工记忆页面：命中指定记忆卡牌「{card['name']}」")
-                _move_and_click(task, card["x"], card["y"])
-                task.sleep(1)
-                return True
-
-    task.log_info("加工记忆页面：未匹配到指定记忆卡牌，点击跳过")
+    task.log_info(
+        f"記憶加工頁未找到標題符合「{specified_memory}」且效果符合加工關鍵字的選項，"
+        "略過本次加工以避免選錯加成"
+    )
     _move_and_click(task, 0.762, 0.935)
     task.sleep(1)
     return True
 
 
 def handle_memory_card_select(task: TriggerTask):
-    """记忆卡牌选择页面：优先目标卡牌，其次指定记忆，否则刷新可搜索的卡牌。"""
+    """記憶卡牌選擇頁面：優先目標卡牌，其次指定記憶，否則刷新可搜尋的卡牌。"""
     title = _get_region_text(task, (0.341, 0.011, 0.670, 0.171))
     if _get_game_text(task, "选择铭刻的记忆") not in title:
         return False
 
-    task.log_info("检测到记忆卡牌选择页面")
+    task.log_info("偵測到記憶卡牌選擇頁面")
     cards = recognize_cards(
-        task, region=(0.065, 0.176, 0.931, 0.787), page="记忆卡牌选择页面"
+        task, region=(0.065, 0.176, 0.931, 0.787), page="記憶卡牌選擇頁面"
     )
     target_boxes, target_click_positions = find_target_card(task)
     if target_boxes:
-        task.log_info("记忆卡牌选择页面：检测到target卡牌，优先选择")
+        task.log_info("記憶卡牌選擇頁面：偵測到目標卡牌，優先選擇")
         _move_and_click(task, *target_click_positions[0])
         task.sleep(1)
         return True
@@ -119,7 +150,7 @@ def handle_memory_card_select(task: TriggerTask):
     if specified_memory:
         for card in cards:
             if is_subsequence(specified_memory, card["name"] + "：:" + card["description"]):
-                task.log_info(f"记忆卡牌选择页面：命中指定记忆卡牌「{card['name']}」")
+                task.log_info(f"記憶卡牌選擇頁面：命中指定記憶卡牌「{card['name']}」")
                 _move_and_click(task, card["x"], card["y"])
                 task.sleep(1)
                 return True
@@ -156,7 +187,7 @@ def handle_memory_card_select(task: TriggerTask):
         search_boxes.remove(search_box)
         if remaining == 0:
             continue
-        task.log_info(f"记忆卡牌选择页面：剩余搜索次数={remaining}，点击重新搜索")
+        task.log_info(f"記憶卡牌選擇頁面：剩餘搜尋次數={remaining}，點擊重新搜尋")
         _move_and_click(
             task,
             (search_box.x + search_box.width / 2) / task.width,
@@ -165,10 +196,17 @@ def handle_memory_card_select(task: TriggerTask):
         task.sleep(1)
         refreshed = True
     if not refreshed:
-        task.log_info("记忆卡牌选择页面：未命中目标，且未找到可用的重新搜索按钮")
+        task.log_info("記憶卡牌選擇頁面：未命中目標，且未能辨識到可用的重新搜尋按鈕")
         if cards:
+            if specified_memory:
+                task.log_info(
+                    f"未找到指定記憶「{specified_memory}」，且未能辨識到可用的重新搜尋按鈕；"
+                    "為避免選錯卡牌，已暫停自動操作，請手動處理。"
+                )
+                og.executor.pause()
+                return True
             card = random.choice(cards)
-            task.log_info(f"未命中目标且无法继续刷新，随机选择「{card['name']}」")
+            task.log_info(f"未命中目標且無法繼續刷新，隨機選擇「{card['name']}」")
             _move_and_click(task, card["x"], card["y"])
             task.sleep(1)
     return True
