@@ -1,0 +1,74 @@
+name: Build Windows EXE (fork)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+      - feature/equipment-controls
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Inline application dependencies
+        run: python -m ok.update.inline_ok_requirements
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          $openccPath = python -c "import opencc, pathlib; print(pathlib.Path(opencc.__file__).parent)"
+          $openccLibrary = Join-Path $openccPath "clib"
+          $openccDictionary = Join-Path $openccLibrary "share/opencc"
+          if (!(Test-Path $openccLibrary) -or !(Test-Path $openccDictionary)) {
+            throw "OpenCC data files were not found under $openccPath"
+          }
+          New-Item -ItemType Directory -Force -Path "C:\Temp\ok_kes" | Out-Null
+          python -m PyInstaller --onefile --noconsole --uac-admin --noupx `
+            --runtime-tmpdir "C:\Temp\ok_kes" `
+            --name "ok-kes-custom" --icon "icons/icon.ico" `
+            --add-data "assets;assets" `
+            --add-data "i18n;i18n" `
+            --add-data "ok_tasks;ok_tasks" `
+            --add-data "$openccLibrary;opencc/clib" `
+            --add-data "$openccDictionary;opencc/lib/share/opencc" `
+            --hidden-import ok_tasks.SortieMode `
+            --hidden-import ok_tasks.ChaosMode `
+            --hidden-import utils_sortie `
+            --hidden-import utils_chaos `
+            --hidden-import src.globals `
+            --hidden-import src.tasks.MyOneTimeTask `
+            --hidden-import onnxocr `
+            --hidden-import onnxocr_ppocrv5 `
+            --exclude-module PySide6.translations `
+            --collect-all onnxocr `
+            --collect-all onnxruntime `
+            --collect-all pyappify `
+            main.py
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ok-kes-custom-windows
+          path: dist/ok-kes-custom.exe
+          if-no-files-found: error
+          retention-days: 7

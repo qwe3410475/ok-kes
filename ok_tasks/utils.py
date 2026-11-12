@@ -1,4 +1,4 @@
-from ok import TriggerTask
+from ok import TriggerTask, og
 
 import re
 import random
@@ -2176,6 +2176,17 @@ def _equipment_rank(name, priority):
     return rank if rank is not None else len(priority)
 
 
+def _equipment_matches_any(name, names):
+    """装备名与配置名称按双向包含进行匹配。"""
+    normalized_name = _normalize_text(name).strip()
+    return bool(normalized_name) and any(
+        normalized_name in _normalize_text(item).strip()
+        or _normalize_text(item).strip() in normalized_name
+        for item in names
+        if isinstance(item, str) and item.strip()
+    )
+
+
 def _equipment_state(task: TriggerTask):
     """获取并修正目标主战员的装备状态字典。"""
     member_status = getattr(task, "member_status", None)
@@ -2472,6 +2483,20 @@ def _find_target_member_index(
     return target_member_index
 
 
+def _pause_for_target_equipment(task, equipment_name):
+    """暂停卡厄思模式中命中的目标装备。"""
+    if '刷到指定装备时暂停' not in getattr(task, 'default_config', {}):
+        return False
+    if not _get_config_value(task, '刷到指定装备时暂停', False):
+        return False
+    targets = _get_card_list(task, '暂停目标装备')
+    if not _equipment_matches_any(equipment_name, targets):
+        return False
+    task.log_info(f"刷到暂停目标装备「{equipment_name}」，暂停工具等待手动处理")
+    og.executor.pause()
+    return True
+
+
 def handle_equipment(task: TriggerTask):
     """装备选择/安装界面: 按装备位优先级选择，并维护目标主战员的装备状态。"""
     title = find_box_at_point(task, 0.499, 0.126)
@@ -2552,6 +2577,28 @@ def handle_equipment(task: TriggerTask):
                 return True
             return False
         equipment_desc = new_equipment["description"]
+        task.log_info(f"待选装备描述: 「{equipment_desc}」")
+        if _pause_for_target_equipment(task, new_equipment["name"]):
+            return True
+        keep_equipment = _get_card_list(task, "保留装备列表")
+        if (
+            "仅保留指定装备并提炼其他装备" in getattr(task, "default_config", {})
+            and _get_config_value(task, "仅保留指定装备并提炼其他装备", False)
+            and keep_equipment
+            and not _equipment_matches_any(new_equipment["name"], keep_equipment)
+        ):
+            refine_box = next(
+                (box for box in task.all_texts
+                 if 0.522 <= (box.x + box.width / 2) / task.width <= 0.999
+                 and 0.879 <= (box.y + box.height / 2) / task.height <= 0.996
+                 and "提炼" in box.name),
+                None,
+            )
+            if refine_box:
+                task.log_info(f"装备「{new_equipment['name']}」不在保留列表，自动提炼")
+                task.click_box(refine_box)
+                task.sleep(1)
+                return True
         task.log_info(f"待安装装备描述: 「{equipment_desc}」")
 
         lv_texts = _find_member_level_tags(
@@ -2717,6 +2764,9 @@ def handle_equipment(task: TriggerTask):
         f"检测到选择装备界面，候选装备: "
         f"{[(candidate['ocr_name'], candidate['slot'] + 1) for candidate in candidates]}"
     )
+
+    if any(_pause_for_target_equipment(task, candidate["name"]) for candidate in candidates):
+        return True
 
     chosen_index = None
     for slot in range(3):

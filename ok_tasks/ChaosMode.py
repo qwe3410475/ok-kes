@@ -58,6 +58,12 @@ class ChaosMode(TriggerTask):
         self.default_config['装备1号位优先级'] = ["蚀化臂铠"]
         self.default_config['装备2号位优先级'] = ["拷问工具箱"]
         self.default_config['装备3号位优先级'] = ["异象石碑"]
+        self.default_config['刷到指定装备时暂停'] = False
+        self.default_config['暂停目标装备'] = []
+        self.default_config['仅保留指定装备并提炼其他装备'] = False
+        self.default_config['保留装备列表'] = []
+        self.config_description['暂停目标装备'] = "开启“刷到指定装备时暂停”后生效；填写装备名称，命中任一装备时暂停。"
+        self.config_description['保留装备列表'] = "开启“仅保留指定装备并提炼其他装备”后生效；列表中的装备会保留，其余装备自动提炼。列表为空时不会自动提炼。"
         self.default_config['卡牌奖励优先级'] = ["梦之边境"]
         self.default_config['指定记忆卡牌'] = ""
         self.default_config['首层刷特定闪光'] = False
