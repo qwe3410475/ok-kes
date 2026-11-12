@@ -46,7 +46,6 @@ jobs:
           python -m PyInstaller --onefile --noconsole --uac-admin --noupx `
             --runtime-tmpdir "C:\Temp\ok_kes" `
             --name "ok-kes-custom" --icon "icons/icon.ico" `
-            --add-data "assets;assets" `
             --add-data "i18n;i18n" `
             --add-data "ok_tasks;ok_tasks" `
             --add-data "$openccLibrary;opencc/clib" `
