@@ -68,6 +68,8 @@ class ChaosMode(TriggerTask):
         self.default_config['指定记忆卡牌'] = ""
         self.default_config['自动记忆加工'] = True
         self.config_description['自动记忆加工'] = "开启时自动加工指定记忆，并在记忆之末使用可用的记忆雕琢；关闭时跳过加工并离开记忆之末。"
+        self.default_config['记忆加工关键词优先级'] = []
+        self.config_description['记忆加工关键词优先级'] = "按顺序填写关键字，程序会在加工记忆卡牌的名称和描述中查找，优先选择命中最高优先级的卡牌；未命中时继续使用“指定记忆卡牌”设置。"
         self.default_config['首层刷特定闪光'] = False
         self.default_config['刷空档'] = False
         self.default_config['优先使用金币治疗'] = True

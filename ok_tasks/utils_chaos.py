@@ -63,6 +63,26 @@ def handle_memory_process(task: TriggerTask):
     cards = recognize_cards(
         task, region=(0.095, 0.204, 0.887, 0.868), page="加工记忆页面"
     )[:3]
+    memory_keywords = _get_card_list(task, "记忆加工关键词优先级")
+    for keyword in memory_keywords:
+        keyword = keyword.strip() if isinstance(keyword, str) else ""
+        if not keyword:
+            continue
+        matched_card = next(
+            (
+                card for card in cards
+                if keyword in (card["name"] + "：:" + card["description"])
+            ),
+            None,
+        )
+        if matched_card:
+            task.log_info(
+                f"记忆加工页面：关键词「{keyword}」命中「{matched_card['name']}」，优先选择"
+            )
+            _move_and_click(task, matched_card["x"], matched_card["y"])
+            task.sleep(1)
+            return True
+
     specified_memory = _get_config_value(task, "指定记忆卡牌", "")
     if specified_memory:
         for card in cards:
