@@ -141,6 +141,8 @@ def handle_memory_card_select(task: TriggerTask):
     )
     target_boxes, target_click_positions = find_target_card(task)
     if target_boxes:
+        if isinstance(getattr(task, "node_status", None), dict):
+            task.node_status.pop("memory_card_refresh_target", None)
         task.log_info("記憶卡牌選擇頁面：偵測到目標卡牌，優先選擇")
         _move_and_click(task, *target_click_positions[0])
         task.sleep(1)
@@ -150,10 +152,27 @@ def handle_memory_card_select(task: TriggerTask):
     if specified_memory:
         for card in cards:
             if is_subsequence(specified_memory, card["name"] + "：:" + card["description"]):
+                if isinstance(getattr(task, "node_status", None), dict):
+                    task.node_status.pop("memory_card_refresh_target", None)
                 task.log_info(f"記憶卡牌選擇頁面：命中指定記憶卡牌「{card['name']}」")
                 _move_and_click(task, card["x"], card["y"])
                 task.sleep(1)
                 return True
+
+    missing_memory_action = _get_config_value(
+        task, "指定記憶未命中時處理", "暫停"
+    )
+    stop_after_miss = bool(specified_memory) and missing_memory_action in (
+        "暫停", "退出並重新開始"
+    )
+    node_status = getattr(task, "node_status", None)
+    if stop_after_miss and isinstance(node_status, dict):
+        attempted_target = node_status.get("memory_card_refresh_target")
+        if (isinstance(attempted_target, dict)
+                and attempted_target.get("target") == specified_memory
+                and attempted_target.get("reroll_requested")):
+            # 已要求退出；讓後續頁面處理器接手，避免在選牌頁重複送出退出操作。
+            return False
 
     search_boxes = []
     count_boxes = []
@@ -195,16 +214,31 @@ def handle_memory_card_select(task: TriggerTask):
         )
         task.sleep(1)
         refreshed = True
+        # 每次只消耗一次刷新；下一輪重新辨識新卡牌，再決定是否繼續刷新。
+        return True
     if not refreshed:
         task.log_info("記憶卡牌選擇頁面：未命中目標，且未能辨識到可用的重新搜尋按鈕")
-        if cards:
-            if specified_memory:
+        if stop_after_miss:
+            if missing_memory_action == "退出並重新開始":
                 task.log_info(
-                    f"未找到指定記憶「{specified_memory}」，且未能辨識到可用的重新搜尋按鈕；"
-                    "為避免選錯卡牌，已暫停自動操作，請手動處理。"
+                    f"刷新次數已耗盡，仍未找到指定記憶「{specified_memory}」，退出本局並重新開始"
                 )
-                og.executor.pause()
-                return True
+                if isinstance(node_status, dict):
+                    node_status["memory_card_refresh_target"] = {
+                        "target": specified_memory,
+                        "reroll_requested": True,
+                    }
+                # 與既有刷初始卡牌／初始任務的重刷流程一致，透過右上角退出本局。
+                _move_and_click(task, 0.959, 0.053)
+                task.sleep(1)
+                return False
+            task.log_info(
+                f"刷新次數已耗盡，仍未找到指定記憶「{specified_memory}」，"
+                "已暫停自動操作；請手動處理。"
+            )
+            task.executor.pause()
+            return True
+        if cards:
             card = random.choice(cards)
             task.log_info(f"未命中目標且無法繼續刷新，隨機選擇「{card['name']}」")
             _move_and_click(task, card["x"], card["y"])

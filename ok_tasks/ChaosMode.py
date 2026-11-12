@@ -66,6 +66,11 @@ class ChaosMode(TriggerTask):
         self.config_description['保留装备列表'] = "开启“仅保留指定装备并提炼其他装备”后生效；列表中的装备会保留，其余装备自动提炼。列表为空时不会自动提炼。"
         self.default_config['卡牌奖励优先级'] = ["梦之边境"]
         self.default_config['指定记忆卡牌'] = ""
+        self.default_config['指定記憶未命中時處理'] = "暫停"
+        self.config_description['指定記憶未命中時處理'] = (
+            "程式會持續刷新並辨識新卡牌；用完所有可用刷新次數仍未找到指定卡牌時，"
+            "可選擇暫停等待手動處理，或退出本局並重新開始。"
+        )
         self.default_config['自动记忆加工'] = True
         self.config_description['自动记忆加工'] = "开启时自动加工指定记忆，并在记忆之末使用可用的记忆雕琢；关闭时跳过加工并离开记忆之末。"
         self.default_config['记忆加工关键词优先级'] = []
@@ -115,6 +120,10 @@ class ChaosMode(TriggerTask):
                 ],
             },
             '第几层boss前自动暂停': {'type': 'drop_down', 'options': ['不暂停', '1', '2']},
+            '指定記憶未命中時處理': {
+                'type': 'drop_down',
+                'options': ['暫停', '退出並重新開始'],
+            },
             '存储数据保存上限大于多少': {'min': 0, 'max': 170},
         }
         self.config_description['游戏语言'] = "国际服请设置为繁体中文"
